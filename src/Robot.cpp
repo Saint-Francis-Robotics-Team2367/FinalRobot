@@ -7,8 +7,8 @@
 #define RR_ID 4
 #define FAN_ID 0
 
-#define LIFTER_FCHAN 0
-#define LIFTER_RCHAN 1
+#define LIFTER_FCHAN 1
+#define LIFTER_RCHAN 0
 
 /**
  * This is a demo program showing how to use Mecanum control with the RobotDrive class.
@@ -71,8 +71,9 @@ public:
 		while (IsOperatorControl() && IsEnabled())
 		{
 		  currTime = Timer::GetFPGATimestamp();
-			if(this->stick->GetRawButton(4))this->lifter->Set(DoubleSolenoid::kForward);
-			else if (this->stick->GetRawButton(1)) this->lifter->Set(DoubleSolenoid::kReverse);
+			if(this->stick->GetRawButton(5))this->lifter->Set(DoubleSolenoid::kForward);
+			else if (this->stick->GetRawButton(6)) this->lifter->Set(DoubleSolenoid::kReverse);
+			else if (this->stick->GetRawButton(1)) this->lifter->Set(DoubleSolenoid::kOff);
 			if(currTime-lastCompTime>1)
 			{
 			  if(this->comp->Enabled())
