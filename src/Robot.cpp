@@ -16,23 +16,26 @@
 class Robot: public SampleRobot
 {
 
-    // Channels for the wheels
-    CANTalon *frontLeftMot;
-    CANTalon *frontRightMot;
-    CANTalon *rearLeftMot;
-    CANTalon *rearRightMot;
-    RobotDrive *robotDrive;	// robot drive system
-    Joystick *stick;			// only joystick
-    Compressor *comp;
-    PowerDistributionPanel *pdb;
-    ArduinoComm *leds;
-    Relay *fan;
+	// Channels for the wheels
+	CANTalon *frontLeftMot;
+	CANTalon *frontRightMot;
+	CANTalon *rearLeftMot;
+	CANTalon *rearRightMot;
+	RobotDrive *robotDrive;	// robot drive system
+	Joystick *stick;			// only joystick
+	Compressor *comp;
+	PowerDistributionPanel *pdb;
+	ArduinoComm *leds;
+	Relay *fan;
 
-    DoubleSolenoid *lifter;
+	DoubleSolenoid *lifter;
 
+	IMAQdxSession session;
+	Image *frame;
+	IMAQdxError imaqError;
 
 public:
-	Robot()							// as they are declared above.
+	Robot()					// as they are declared above.
 	{
 		this->frontLeftMot = new CANTalon(FL_ID);
 		this->frontRightMot = new CANTalon(FR_ID);
@@ -43,16 +46,37 @@ public:
 		this->pdb = new PowerDistributionPanel();
 		this->leds = new ArduinoComm();
 
-		this->robotDrive = new RobotDrive(this->frontLeftMot,this->rearLeftMot,this->frontRightMot,this->rearRightMot);
+		this->robotDrive = new RobotDrive(this->frontLeftMot, this->rearLeftMot,
+				this->frontRightMot, this->rearRightMot);
 		this->robotDrive->SetExpiration(0.1);
-		this->robotDrive->SetInvertedMotor(RobotDrive::kFrontLeftMotor, true);	// invert the left side motors
-		this->robotDrive->SetInvertedMotor(RobotDrive::kRearLeftMotor, true);	// you may need to change or remove this to match your robot
-		this->fan = new Relay(FAN_ID,Relay::kForwardOnly);
+		this->robotDrive->SetInvertedMotor(RobotDrive::kFrontLeftMotor, true);// invert the left side motors
+		this->robotDrive->SetInvertedMotor(RobotDrive::kRearLeftMotor, true);// you may need to change or remove this to match your robot
+		this->fan = new Relay(FAN_ID, Relay::kForwardOnly);
 
-		this->lifter = new DoubleSolenoid (LIFTER_FCHAN,LIFTER_RCHAN);
-
+		this->lifter = new DoubleSolenoid(LIFTER_FCHAN, LIFTER_RCHAN);
 
 		this->stick = new Joystick(0);
+
+		/////////////////////////////////////////////////////////////////////////////////////
+
+		frame = imaqCreateImage(IMAQ_IMAGE_RGB, 0);
+		//the camera name (ex "cam0") can be found through the roborio web interface
+		imaqError = IMAQdxOpenCamera("cam0", IMAQdxCameraControlModeController,
+				&session);
+		if (imaqError != IMAQdxErrorSuccess)
+		{
+			DriverStation::ReportError(
+					"IMAQdxOpenCamera error: "
+							+ std::to_string((long) imaqError) + "\n");
+		}
+		imaqError = IMAQdxConfigureGrab(session);
+		if (imaqError != IMAQdxErrorSuccess)
+		{
+			DriverStation::ReportError(
+					"IMAQdxConfigureGrab error: "
+							+ std::to_string((long) imaqError) + "\n");
+		}
+		//////////////////////////////////////////////////////////////////////////////////////
 	}
 
 	/**
@@ -62,44 +86,70 @@ public:
 	{
 
 		this->robotDrive->SetSafetyEnabled(false);
-		this->leds->preGame(this->frontLeftMot,this->frontRightMot,this->rearLeftMot,this->rearRightMot,this->comp,this->pdb);
+		this->leds->preGame(this->frontLeftMot, this->frontRightMot,
+				this->rearLeftMot, this->rearRightMot, this->comp, this->pdb);
 		this->comp->Start();
 		float currTime = Timer::GetFPGATimestamp();
 		float lastCompTime = currTime;
 		float lastDriveTime = currTime;
 
+		IMAQdxStartAcquisition(session);
+
 		while (IsOperatorControl() && IsEnabled())
 		{
-		  currTime = Timer::GetFPGATimestamp();
-			if(this->stick->GetRawButton(5))this->lifter->Set(DoubleSolenoid::kForward);
-			else if (this->stick->GetRawButton(6)) this->lifter->Set(DoubleSolenoid::kReverse);
-			else if (this->stick->GetRawButton(1)) this->lifter->Set(DoubleSolenoid::kOff);
-			if(currTime-lastCompTime>1)
+			currTime = Timer::GetFPGATimestamp();
+			if (this->stick->GetRawButton(6))
+				this->lifter->Set(DoubleSolenoid::kForward);
+			else if (this->stick->GetRawButton(5))
+				this->lifter->Set(DoubleSolenoid::kReverse);
+			else if (this->stick->GetRawButton(1))
+				this->lifter->Set(DoubleSolenoid::kOff);
+			if (currTime - lastCompTime > 1)
 			{
-			  if(this->comp->Enabled())
-			    {
-			      this->fan->Set(Relay::kForward);
-			      this->leds->notFullPressure();
-			    }
-			  else
-			    {
-			      this->leds->fullPressure();
-			      this->fan->Set(Relay::kOff);
-			    }
-			  lastCompTime = currTime;
+				if (this->comp->Enabled())
+				{
+					this->fan->Set(Relay::kForward);
+					this->leds->notFullPressure();
+				}
+				else
+				{
+					this->leds->fullPressure();
+					this->fan->Set(Relay::kOff);
+				}
+				lastCompTime = currTime;
 			}
-			if(currTime-lastDriveTime>0.005)
+			if (currTime - lastDriveTime > 0.005)
 			{
-			  this->robotDrive->MecanumDrive_Cartesian(deadZone(stick->GetRawAxis(0)*-1),deadZone(stick->GetRawAxis(1)*-1), deadZone(stick->GetRawAxis(4)*-1));
-			  lastDriveTime = currTime;
+				this->robotDrive->MecanumDrive_Cartesian(
+						deadZone(stick->GetRawAxis(0) * -1),
+						deadZone(stick->GetRawAxis(1) * -1),
+						deadZone(stick->GetRawAxis(4) * -1));
+				lastDriveTime = currTime;
 			}
-			Wait(0.001); // wait 5ms to avoid hogging CPU cycles
+			/////////////////////////////////////////////////////////////////////////////////
+			IMAQdxGrab(session, frame, true, NULL);
+			if (imaqError != IMAQdxErrorSuccess)
+			{
+				DriverStation::ReportError(
+						"IMAQdxGrab error: " + std::to_string((long) imaqError)
+								+ "\n");
+			}
+			else
+			{
+				CameraServer::GetInstance()->SetImage(frame);
+			}
+			//////////////////////////////////////////////////////////////////////////////////
+			Wait(0.005); // wait 5ms to avoid hogging CPU cycles
 		}
+		IMAQdxStopAcquisition(session);
+
 	}
 	float deadZone(float x)
 	{
-	  if(std::abs(x)<0.05)return 0;
-	  else return x;
+		if (std::abs(x) < 0.05)
+			return 0;
+		else
+			return x;
 	}
 
 };

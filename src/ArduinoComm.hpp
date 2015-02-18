@@ -26,7 +26,7 @@ class ArduinoComm
     void notFullPressure();
     void error();
     void reset();
-    void rainbow();
+	void rainbow();
     void preGame(CANTalon *fL,CANTalon *fR,CANTalon *rL,CANTalon *rR,Compressor *comp,PowerDistributionPanel *pdb);
   private:
     I2C *comm;
