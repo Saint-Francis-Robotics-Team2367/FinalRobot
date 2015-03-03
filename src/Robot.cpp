@@ -1,14 +1,60 @@
 #include "WPILib.h"
 #include "ArduinoComm.hpp"
 
+//MOT IDS
 #define FL_ID 3
 #define FR_ID 2
 #define RL_ID 1
 #define RR_ID 4
+
+//RELAY IDS
 #define FAN_ID 0
 
+//SOLENOID IDS
 #define LIFTER_FCHAN 1
 #define LIFTER_RCHAN 0
+
+#define FGATE_FCHAN 2
+#define FGATE_RCHAN 3
+
+#define GATE_FCHAN 4
+#define GATE_RCHAN 5
+
+#define HOPPER_FCHAN 6
+#define HOPPER_RCHAN 7
+
+
+//DELAYS
+#define ARM_DELAY 2
+#define GATE_DELAY 3
+#define GATE_CLOSING_DELAY 3
+#define HOPPER_FORWARD_DELAY 2
+#define FGATE_OPEN_DELAY 2
+
+
+//States
+#define RESET_STATE 0
+#define RAISING_TOTE 1
+#define CLOSING_GATE 2
+#define HOPPER_FORWARD 3
+#define FGATE_OPENNING 4
+
+//PNEUMATIC POS
+#define HOPPER_FORWARD DoubleSolenoid::kForward
+#define HOPPER_BACK DoubleSolenoid::kReverse
+
+#define LIFTER_UP DoubleSolenoid::kForward
+#define LIFTER_DOWN DoubleSolenoid::kReverse
+
+#define FGATE_OPEN DoubleSolenoid::kForward
+#define FGATE_CLOSE DoubleSolenoid::kReverse
+
+#define GATE_OPEN DoubleSolenoid::kForward
+#define GATE_CLOSE DoubleSolenoid::kReverse
+
+
+//MACROS
+#define CURR_TIME Timer::GetFPGATimestamp()
 
 /**
  * This is a demo program showing how to use Mecanum control with the RobotDrive class.
@@ -22,13 +68,18 @@ class Robot: public SampleRobot
 	CANTalon *rearLeftMot;
 	CANTalon *rearRightMot;
 	RobotDrive *robotDrive;	// robot drive system
-	Joystick *stick;			// only joystick
+	Joystick *firstDriver;			// only joystick
+	Joystick *secondDriver;
 	Compressor *comp;
 	PowerDistributionPanel *pdb;
 	ArduinoComm *leds;
 	Relay *fan;
 
 	DoubleSolenoid *lifter;
+	DoubleSolenoid *frontGate;
+	DoubleSolenoid *gate;
+	DoubleSolenoid *hopper;
+
 
 	IMAQdxSession session;
 	Image *frame;
@@ -54,8 +105,12 @@ public:
 		this->fan = new Relay(FAN_ID, Relay::kForwardOnly);
 
 		this->lifter = new DoubleSolenoid(LIFTER_FCHAN, LIFTER_RCHAN);
+		this->frontGate = new DoubleSolenoid(FGATE_FCHAN, FGATE_RCHAN);
+		this->gate = new DoubleSolenoid(GATE_FCHAN,GATE_RCHAN);
+		this->hopper = new DoubleSolenoid(HOPPER_FCHAN, HOPPER_RCHAN);
 
-		this->stick = new Joystick(0);
+		this->firstDriver = new Joystick(0);
+		this->secondDriver = new Joystick(1);
 
 		/////////////////////////////////////////////////////////////////////////////////////
 
@@ -89,44 +144,123 @@ public:
 		this->leds->preGame(this->frontLeftMot, this->frontRightMot,
 				this->rearLeftMot, this->rearRightMot, this->comp, this->pdb);
 		this->comp->Start();
-		float currTime = Timer::GetFPGATimestamp();
-		float lastCompTime = currTime;
-		float lastDriveTime = currTime;
+		float lastCompTime = CURR_TIME;
+		float lastDriveTime = CURR_TIME;
+		float raisingTime = CURR_TIME;
+		float gateClosingTime = CURR_TIME;
+		float hopperForwardTime = CURR_TIME;
+		float gateOpenTime = CURR_TIME;
+		float loweringTime = CURR_TIME;
 
+		int state = RESET_STATE;
 		IMAQdxStartAcquisition(session);
 
 		while (IsOperatorControl() && IsEnabled())
 		{
-			currTime = Timer::GetFPGATimestamp();
-			if (this->stick->GetRawButton(6))
+			//RAISE MAIN PNEUMATIC
+			if(this->firstDriver->GetRawButton(6) && state == RESET_STATE)
+			{
+				this->lifter->Set(LIFTER_UP);
+				raisingTime = CURR_TIME;
+				state = RAISING_TOTE;
+			}
+			//OPENNING GATE
+			else if(CURR_TIME - raisingTime>ARM_DELAY && state == RAISING_TOTE)
+			{
+				this->gate->Set(GATE_OPEN);
+				gateClosingTime = CURR_TIME;
+				state = CLOSING_GATE;
+			}
+			//CLOSING GATE AND LOWER LIFTER
+			else if(CURR_TIME - gateClosingTime>GATE_DELAY && state == CLOSING_GATE)
+			{
+				this->gate->Set(GATE_CLOSE);
+				state = RESET_STATE;
+				this->lifter->Set(LIFTER_DOWN);
+			}
+
+
+			if(this->firstDriver->GetRawButton(5) && state == RESET_STATE)
+			{
+				this->hopper->Set(HOPPER_FORWARD);
+				hopperForwardTime = CURR_TIME;
+				state = HOPPER_FORWARD;
+			}
+			else if(CURR_TIME -hopperForwardTime >HOPPER_FORWARD_DELAY && state == HOPPER_FORWARD)
+			{
+				this->gate->Set(GATE_OPEN);
+				gateOpenTime = CURR_TIME;
+				state = FGATE_OPENNING;
+			}
+			else if(CURR_TIME -gateOpenTime >FGATE_OPEN_DELAY && state == FGATE_OPENNING)
+			{
+				this->frontGate->Set(FGATE_OPEN);
+				this->lifter->Set(LIFTER_DOWN);
+				state = RESET_STATE;
+			}
+
+			if(this->firstDriver->GetRawButton(1))
+			{
+				this->frontGate->Set(FGATE_CLOSE);
+				this->gate->Set(GATE_CLOSE);
+			}
+			/*/////////////////////////////////////////////////////////////////////////////////
+
+								2nd Driver Manual Control
+
+			////////////////////////////////////////////////////////////////////////////////*/
+			if (this->secondDriver->GetRawButton(6))
 				this->lifter->Set(DoubleSolenoid::kForward);
-			else if (this->stick->GetRawButton(5))
+			else if (this->secondDriver->GetRawButton(5))
 				this->lifter->Set(DoubleSolenoid::kReverse);
-			else if (this->stick->GetRawButton(1))
-				this->lifter->Set(DoubleSolenoid::kOff);
-			if (currTime - lastCompTime > 1)
+
+			if(this->secondDriver->GetRawButton(3))
+				this->gate->Set(DoubleSolenoid::kForward);
+			else if (this->secondDriver->GetRawButton(2))
+				this->gate->Set(DoubleSolenoid::kReverse);
+
+			if(this->secondDriver->GetRawButton(1))
+				this->frontGate->Set(DoubleSolenoid::kForward);
+			else if(this->secondDriver->GetRawButton(4))
+				this->frontGate->Set(DoubleSolenoid::kReverse);
+
+			/*/////////////////////////////////////////////////////////////////////////////////
+
+											Fans and LEDs
+
+			////////////////////////////////////////////////////////////////////////////////*/
+			if (CURR_TIME - lastCompTime > 1)
 			{
 				if (this->comp->Enabled())
 				{
 					this->fan->Set(Relay::kForward);
-					this->leds->notFullPressure();
+					this->leds->rainbow();
 				}
 				else
 				{
 					this->leds->fullPressure();
 					this->fan->Set(Relay::kOff);
 				}
-				lastCompTime = currTime;
+				lastCompTime = CURR_TIME;
 			}
-			if (currTime - lastDriveTime > 0.005)
+			/*/////////////////////////////////////////////////////////////////////////////////
+
+										ROBOT DRIVE
+
+			////////////////////////////////////////////////////////////////////////////////*/
+			if (CURR_TIME - lastDriveTime > 0.005)
 			{
 				this->robotDrive->MecanumDrive_Cartesian(
-						deadZone(stick->GetRawAxis(0) * -1),
-						deadZone(stick->GetRawAxis(1) * -1),
-						deadZone(stick->GetRawAxis(4) * -1));
-				lastDriveTime = currTime;
+						deadZone(firstDriver->GetRawAxis(0) * -1),
+						deadZone(firstDriver->GetRawAxis(1) * -1),
+						deadZone(firstDriver->GetRawAxis(4) * -1));
+				lastDriveTime = CURR_TIME;
 			}
-			/////////////////////////////////////////////////////////////////////////////////
+			/*/////////////////////////////////////////////////////////////////////////////////
+
+											Image Processing
+
+			////////////////////////////////////////////////////////////////////////////////*/
 			IMAQdxGrab(session, frame, true, NULL);
 			if (imaqError != IMAQdxErrorSuccess)
 			{
@@ -142,6 +276,7 @@ public:
 			Wait(0.005); // wait 5ms to avoid hogging CPU cycles
 		}
 		IMAQdxStopAcquisition(session);
+		this->leds->reset();
 
 	}
 	float deadZone(float x)
