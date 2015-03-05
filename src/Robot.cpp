@@ -34,7 +34,7 @@
 #define RESET_STATE 0
 #define RAISING_TOTE 1
 #define CLOSING_GATE 2
-#define HOPPER_FORWARDING 3
+#define ULOAD_LIFTER_DOWN 3
 #define FGATE_OPENNING 4
 
 //PNEUMATIC POS
@@ -144,7 +144,7 @@ public:
 		float lastDriveTime = CURR_TIME;
 		float raisingTime = CURR_TIME;
 		float gateClosingTime = CURR_TIME;
-		float hopperForwardTime = CURR_TIME;
+		float uloadLiftUp = CURR_TIME;
 		float gateOpenTime = CURR_TIME;
 		float loweringTime = CURR_TIME;
 
@@ -176,15 +176,15 @@ public:
 			}
 
 
-			//MOVE HOPPER FORWARD
+			//RAISE LIFTER
 			if(this->firstDriver->GetRawButton(5) && state == RESET_STATE)
 			{
-				this->hopper->Set(HOPPER_FORWARD);
-				hopperForwardTime = CURR_TIME;
-				state = HOPPER_FORWARDING;
+				this->lifter->Set(LIFTER_UP);
+				uloadLiftUp = CURR_TIME;
+				state = ULOAD_LIFTER_DOWN;
 			}
 			//OPEN GATE
-			else if(CURR_TIME -hopperForwardTime >HOPPER_FORWARD_DELAY && state == HOPPER_FORWARDING)
+			else if(CURR_TIME -uloadLiftUp >HOPPER_FORWARD_DELAY && state == ULOAD_LIFTER_DOWN)
 			{
 				this->gate->Set(GATE_OPEN);
 				gateOpenTime = CURR_TIME;
